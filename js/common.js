@@ -1,19 +1,26 @@
 'use strict'
 
-window.isDebug = false
-window.isFirefox = navigator.userAgent.includes("Firefox")
+// 全局变量声明
+window.isDebug = false  // 调试模式开关
+window.isFirefox = navigator.userAgent.includes("Firefox")  // 检测是否为Firefox浏览器
+
+// 浏览器API封装对象
 window.B = {
-    getBackgroundPage: chrome.extension.getBackgroundPage,
-    id: chrome.runtime.id,
-    root: chrome.runtime.getURL(''),
-    homeUrl: chrome.runtime.getURL('dream_tabs.html'),
-    error: chrome.runtime.lastError,
-    browserAction: chrome.browserAction,
-    storage: chrome.storage,
-    contextMenus: chrome.contextMenus,
-    tabs: chrome.tabs,
+    getBackgroundPage: chrome.extension.getBackgroundPage,  // 获取后台页面引用
+    id: chrome.runtime.id,  // 扩展ID
+    root: chrome.runtime.getURL(''),  // 扩展根目录URL
+    homeUrl: chrome.runtime.getURL('dream_tabs.html'),  // 扩展主页URL
+    error: chrome.runtime.lastError,  // 最后错误信息
+    browserAction: chrome.browserAction,  // 浏览器工具栏按钮API
+    storage: chrome.storage,  // 存储API
+    contextMenus: chrome.contextMenus,  // 右键菜单API
+    tabs: chrome.tabs,  // 标签页API
 }
 
+/**
+ * 字符串格式化函数
+ * 使用方法："Hello {0}, this is {1}".format("World", "JavaScript")
+ */
 String.prototype.format = function () {
     let args = arguments
     return this.replace(/{(\d+)}/g, function (match, number) {
@@ -21,55 +28,92 @@ String.prototype.format = function () {
     })
 }
 
+/**
+ * 添加标签页组到收纳列表
+ * @param {Object} tabList - 收纳列表对象
+ * @param {Array} tabs - 标签页数组
+ * @returns {Object} 更新后的收纳列表
+ */
 function addTabList(tabList, tabs) {
     if (tabs.length > 0) {
-        let t = Date.now()
+        let t = Date.now()  // 使用当前时间戳作为唯一标识
         tabList[t] = {
-            title: getTitle(),
-            locked: false,
-            topped: false,
-            toppedDate: 0,
-            tabs,
-            createDate: t,
+            title: getTitle(),  // 生成默认标题
+            locked: false,      // 是否锁定（锁定后不可删除）
+            topped: false,      // 是否置顶
+            toppedDate: 0,      // 置顶时间戳
+            tabs,               // 标签页数据
+            createDate: t,      // 创建时间戳
         }
-        saveStorage(tabList)
+        saveStorage(tabList)  // 保存到存储
     }
     return tabList
 }
 
+/**
+ * 对收纳列表进行排序
+ * 排序规则：1.置顶时间倒序 2.创建时间倒序
+ * @param {Object} tabList - 收纳列表对象
+ * @returns {Array} 排序后的数组
+ */
 function sortTabList(tabList) {
     let arr = []
-    Object.keys(tabList).forEach(v => arr.push(tabList[v]))
-    arr = arr.sort((a, b) => b.createDate - a.createDate) // 创建时间倒序
-    arr = arr.sort((a, b) => b.toppedDate - a.toppedDate) // 置顶时间倒序
+    Object.keys(tabList).forEach(v => arr.push(tabList[v]))  // 对象转数组
+    arr = arr.sort((a, b) => b.createDate - a.createDate)  // 创建时间倒序
+    arr = arr.sort((a, b) => b.toppedDate - a.toppedDate)  // 置顶时间倒序
     return arr
 }
 
+/**
+ * 生成收纳组标题
+ * @param {number} value - 时间戳（可选）
+ * @returns {string} 格式化后的标题
+ */
 function getTitle(value) {
     return `收纳于 ${getDate(value)} ${getWeek(value)}`
 }
 
+/**
+ * 格式化日期时间
+ * @param {number} value - 时间戳（可选）
+ * @returns {string} 格式化的日期时间字符串
+ */
 function getDate(value) {
     let d = value ? new Date(value) : new Date()
-    d.setMinutes(-d.getTimezoneOffset() + d.getMinutes(), d.getSeconds(), 0)
+    d.setMinutes(-d.getTimezoneOffset() + d.getMinutes(), d.getSeconds(), 0)  // 时区调整
     let s = d.toJSON()
     s = s.replace('T', ' ')
     s = s.replace('.000Z', '')
     return s
 }
 
+/**
+ * 获取星期几
+ * @param {number} value - 时间戳（可选）
+ * @returns {string} 星期几的中文表示
+ */
 function getWeek(value) {
     let d = value ? new Date(value) : new Date()
     let weekArr = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
     return weekArr[d.getDay()]
 }
 
+/**
+ * 保存收纳列表到存储
+ * @param {Object} tabList - 收纳列表对象
+ */
 function saveStorage(tabList) {
-    localStorage.setItem('tabList', JSON.stringify(tabList))
-    storageLocalSet({tabList}).catch(err => debug(`save local error: ${err}`)) // 最大可存放 5M
-    !isDebug && saveStorageSync(tabList) // 限制最多存放 75 K
+    localStorage.setItem('tabList', JSON.stringify(tabList))  // 保存到localStorage
+    storageLocalSet({tabList}).catch(err => debug(`save local error: ${err}`))  // 保存到chrome.storage.local
+
+    // 注释：chrome.storage.sync有大小限制（单项8K，总量100K），不适合存储大量数据
+    // !isDebug && storageSyncSet({tabList}).catch(err => debug(`save sync error: ${err}`))
 }
 
+/**
+ * 从存储加载收纳列表
+ * @returns {Promise<Object>} 收纳列表对象
+ */
 function loadStorage() {
     return new Promise((resolve, reject) => {
         (async () => {
@@ -81,27 +125,7 @@ function loadStorage() {
                 debug('[localStorage error]', err)
             }
             await storageLocalGet(['tabList']).then(r => {
-                list = Object.assign(list, r.tabList)
-            }).catch(err => {
-                reject(err)
-            })
-
-            // 同步远程数据
-            let options = []
-            for (let i = 1; i <= 12; i++) options.push(`tabList_${i}`)
-            await storageSyncGet(options).then(r => {
-                let s = ''
-                options.forEach(k => {
-                    s += r[k] || ''
-                })
-                let o
-                try {
-                    o = JSON.parse(s) || {}
-                } catch (err) {
-                    debug('[storageSync JSON error]', err)
-                }
-                // console.log('o:', o)
-                if (o) list = Object.assign(list, o)
+                list = Object.assign(list, r.tabList)  // 合并localStorage和chrome.storage.local的数据
                 resolve(list)
             }).catch(err => {
                 reject(err)
@@ -110,57 +134,42 @@ function loadStorage() {
     })
 }
 
-// chrome 限制单项大小为 8K，总量为 100K，超过无法存放。
-// firefox 和 chrome 一样，见 https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/sync
-function saveStorageSync(tabList) {
-    let maxSize = 8 * 800 * 12 // 限制最大存放 75 K，如果超过，则不保存。
-    let s = JSON.stringify(tabList)
-    if (s.length > maxSize) {
-        // 如果数据太大，仅保存已上锁的数据。
-        let data = {}
-        Object.keys(tabList).forEach(k => {
-            let v = tabList[k]
-            if (v && v.locked) data[k] = v
-        })
-        s = JSON.stringify(data)
-        if (s.length > maxSize) return
-    }
-
-    // 分成 12 份数据
-    let upData = {}
-    let size = 8 * 800 // 浏览器限制大小和文档好像不太一致
-    let start = 0
-    for (let i = 1; i <= 12; i++) {
-        upData[`tabList_${i}`] = s.substr(start, size)
-        // console.log(upData[`tabList_${i}`].length)
-        start += size
-        if (start > s.length) break
-    }
-    // console.log(upData)
-    storageSyncSet(upData).catch(err => debug(`save sync error: ${err}`))
-}
-
+/**
+ * 打开扩展主页
+ */
 function openHome() {
     open(B.homeUrl)
 }
 
+/**
+ * 在新标签页中打开URL
+ * @param {string} url - 要打开的URL
+ */
 function open(url) {
     B.tabs.create({url})
 }
 
-function getTabsQuery(queryInfo) {
+/**
+ * 获取所有标签页
+ * @returns {Promise<Array>} 标签页数组
+ */
+function getAllTabs() {
     return new Promise((resolve, reject) => {
-        queryInfo = queryInfo || {}
         if (!isFirefox) {
-            B.tabs.query(queryInfo, tabs => {
+            B.tabs.query({}, tabs => {
                 B.error ? reject(B.error) : resolve(tabs)
             })
         } else {
-            browser.tabs.query(queryInfo).then(tabs => resolve(tabs), err => reject(err))
+            browser.tabs.query({}).then(tabs => resolve(tabs), err => reject(err))
         }
     })
 }
 
+/**
+ * 获取指定标签页信息
+ * @param {number} tabId - 标签页ID
+ * @returns {Promise<Object>} 标签页信息
+ */
 function getTab(tabId) {
     return new Promise((resolve, reject) => {
         if (!isFirefox) {
@@ -171,6 +180,11 @@ function getTab(tabId) {
     })
 }
 
+/**
+ * 从URL中提取主机名（域名）
+ * @param {string} url - 完整的URL
+ * @returns {string} 主机名（域名）
+ */
 function getHost(url) {
     if (!url) return ''
     let u = {}
@@ -181,6 +195,7 @@ function getHost(url) {
     return u.host || ''
 }
 
+// 存储API的简化封装函数
 function storageLocalGet(options) {
     return storage('local', 'get', options)
 }
@@ -197,6 +212,9 @@ function storageSyncSet(options) {
     return storage('sync', 'set', options)
 }
 
+/**
+ * 调试函数：显示所有存储内容
+ */
 function storageShowAll() {
     if (!isDebug) return
     !isFirefox && storageSyncGet(null).then(function (r) {
@@ -207,6 +225,13 @@ function storageShowAll() {
     })
 }
 
+/**
+ * 通用存储操作函数
+ * @param {string} type - 存储类型：'local' 或 'sync'
+ * @param {string} method - 操作方法：'get' 或 'set'
+ * @param {Object} options - 操作参数
+ * @returns {Promise} 操作结果
+ */
 function storage(type, method, options) {
     return new Promise((resolve, reject) => {
         if (!isFirefox) {
@@ -231,10 +256,15 @@ function storage(type, method, options) {
     })
 }
 
+/**
+ * 调试输出函数
+ * @param {...any} data - 要输出的数据
+ */
 function debug(...data) {
     isDebug && console.log('[DMX DEBUG]', ...data)
 }
 
+// DOM操作辅助函数
 function addClass(el, className) {
     className = className.trim()
     let oldClassName = el.className.trim()
